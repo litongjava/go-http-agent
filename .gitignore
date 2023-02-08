@@ -126,6 +126,6 @@ checkouts/
 querydsl/
 
 .DS_Store
-
+*.exe
 litongjava-go-simple-http-server.exe
 http-server.exe
