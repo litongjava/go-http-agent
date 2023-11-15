@@ -1,0 +1,12 @@
+.css
+.js
+.jpg
+.jpeg
+.png
+.svg
+.webp
+.html
+.htm
+.txt
+.md
+.pdf
