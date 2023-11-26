@@ -43,7 +43,11 @@ go-http-agent --port <port number> --context-path <context path> --proxy-url <ta
    ```
 
    This configuration allows you to proxy HTTPS requests, such as proxying to Google.
+4. ** Websocket Proxy**:
 
+```shell
+go-http-agent --port 8090 --context-path /xxx --proxy-url ws://www.baidu.com/yyy
+```
 ## Parameter Explanation
 
 - `--port`: Sets the listening port for the proxy server.

@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"flag"
+	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	"net/http"
@@ -43,6 +44,11 @@ func main() {
 func handler(p *httputil.ReverseProxy, saveDir string, proxyURL *url.URL) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 
+		// 检查是否是 WebSocket 请求
+		if websocket.IsWebSocketUpgrade(r) {
+			handleWebSocket(proxyURL, w, r)
+			return
+		}
 		// 检查请求的URL是否指向静态文件
 		if saveDir != "" && isStaticFile(r.URL.Path) {
 			log.Println("save ", r.URL)
@@ -145,5 +151,57 @@ func saveStaticFile(r *http.Request, saveDir string, proxyURL *url.URL) {
 	if err != nil {
 		log.Println("Error saving file:", err)
 		return
+	}
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
+func handleWebSocket(proxyURL *url.URL, w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("Error upgrading to websocket:", err)
+		return
+	}
+	defer conn.Close()
+
+	// 连接到远程 WebSocket 服务器
+	remoteConn, _, err := websocket.DefaultDialer.Dial(proxyURL.String(), nil)
+	if err != nil {
+		log.Println("Error dialing remote websocket:", err)
+		return
+	}
+	defer remoteConn.Close()
+
+	// 处理从客户端到服务器的消息
+	go func() {
+		for {
+			messageType, message, err := conn.ReadMessage()
+			if err != nil {
+				log.Println("Error reading from websocket:", err)
+				break
+			}
+			err = remoteConn.WriteMessage(messageType, message)
+			if err != nil {
+				log.Println("Error writing to remote websocket:", err)
+				break
+			}
+		}
+	}()
+
+	// 处理从服务器到客户端的消息
+	for {
+		messageType, message, err := remoteConn.ReadMessage()
+		if err != nil {
+			log.Println("Error reading from remote websocket:", err)
+			break
+		}
+		err = conn.WriteMessage(messageType, message)
+		if err != nil {
+			log.Println("Error writing to websocket:", err)
+			break
+		}
 	}
 }
