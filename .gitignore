@@ -129,3 +129,4 @@ querydsl/
 *.exe
 litongjava-go-simple-http-server.exe
 http-server.exe
+app.log
