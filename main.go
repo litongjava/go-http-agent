@@ -200,6 +200,7 @@ func handleWebSocket(proxyURL *url.URL, w http.ResponseWriter, r *http.Request) 
     wsURL += "?" + r.URL.RawQuery
   }
 
+  hlog.Info("websocket:", wsURL)
   // 连接到远程 WebSocket 服务器
   remoteConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
   if err != nil {
@@ -240,8 +241,8 @@ func handleWebSocket(proxyURL *url.URL, w http.ResponseWriter, r *http.Request) 
 }
 
 func logRequest(r *http.Request) {
+  hlog.Info("Request URL:", r.Method, " ", r.URL)
   if debug {
-    hlog.Info("Request URL:", r.URL)
     hlog.Info("Request Headers:", r.Header)
   }
   if r.Method == http.MethodPost || r.Method == http.MethodPut {
@@ -254,7 +255,10 @@ func logRequest(r *http.Request) {
           hlog.Info("Request Body more that 4000k")
         }
       } else {
-        hlog.Error("Request Body:", string(bodyBytes))
+        if debug {
+          hlog.Info("Request Body:", string(bodyBytes))
+        }
+
       }
       r.Body = io.NopCloser(strings.NewReader(string(bodyBytes))) // 重新构建请求体
     }
@@ -278,7 +282,10 @@ func captureAndLogResponse(response http.ResponseWriter, request *http.Request, 
   if length > 1024*400 {
     hlog.Info("Response Body more than 400k")
   } else {
-    hlog.Info("Response Body:", string(decodedBody))
+    if debug {
+      hlog.Info("Response Body:", string(decodedBody))
+    }
+
   }
 }
 
