@@ -10,7 +10,6 @@ import (
   "github.com/gorilla/websocket"
   "io"
   "io/ioutil"
-  "log"
   "net/http"
   "net/http/httputil"
   "net/url"
@@ -21,6 +20,7 @@ import (
 
 // 全局变量来存储静态文件扩展名
 var staticFileExtensions map[string]bool
+var debug = false
 
 func main() {
   // 解析命令行参数
@@ -50,7 +50,7 @@ func main() {
   //
   proxy := httputil.NewSingleHostReverseProxy(remote)
   http.HandleFunc(*contextPath, ProxyHandler(proxy, *saveDir, remote))
-  log.Fatal(http.ListenAndServe(":"+*port, nil))
+  hlog.Fatal(http.ListenAndServe(":"+*port, nil))
 }
 
 func ProxyHandler(reverseProxy *httputil.ReverseProxy, saveDir string, proxyURL *url.URL) func(http.ResponseWriter, *http.Request) {
@@ -64,10 +64,14 @@ func ProxyHandler(reverseProxy *httputil.ReverseProxy, saveDir string, proxyURL 
 
     // 检查请求的URL是否指向静态文件
     if saveDir != "" && isStaticFile(request.URL.Path) {
-      hlog.Info("save ", request.URL)
+      if debug {
+        hlog.Info("save ", request.URL)
+      }
       saveStaticFile(request, saveDir, proxyURL)
     } else {
-      hlog.Info(request.URL)
+      if debug {
+        hlog.Info(request.URL)
+      }
     }
 
     request.Host = request.URL.Host
@@ -87,7 +91,7 @@ func readStaticFileExtensions(filePath string) {
   // 读取文件中的扩展名
   file, err := os.Open(filePath)
   if err != nil {
-    log.Fatalf("Error opening static_file.txt: %v", err)
+    hlog.Fatalf("Error opening static_file.txt: %v", err)
   }
   defer file.Close()
 
@@ -97,7 +101,7 @@ func readStaticFileExtensions(filePath string) {
   }
 
   if err := scanner.Err(); err != nil {
-    log.Fatalf("Error reading static_file.txt: %v", err)
+    hlog.Fatalf("Error reading static_file.txt: %v", err)
   }
 }
 
@@ -105,7 +109,7 @@ func createAndWriteStaticExtensions(filePath string) {
   // 创建文件
   file, err := os.Create(filePath)
   if err != nil {
-    log.Fatalf("Error creating static_file.txt: %v", err)
+    hlog.Fatalf("Error creating static_file.txt: %v", err)
   }
   defer file.Close()
 
@@ -115,7 +119,7 @@ func createAndWriteStaticExtensions(filePath string) {
   // 写入扩展名
   for _, ext := range extensions {
     if _, err := file.WriteString(ext + "\n"); err != nil {
-      log.Fatalf("Error writing to static_file.txt: %v", err)
+      hlog.Fatalf("Error writing to static_file.txt: %v", err)
     }
   }
 }
@@ -140,14 +144,14 @@ func saveStaticFile(r *http.Request, saveDir string, proxyURL *url.URL) {
   // 确保保存文件的目录存在
   dirPath := filepath.Dir(filePath)
   if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-    log.Println("Error creating directory:", err)
+    hlog.Error("Error creating directory:", err)
     return
   }
 
   // 获取文件内容
   resp, err := http.Get(remoteURL)
   if err != nil {
-    log.Println("Error fetching static file:", err)
+    hlog.Error("Error fetching static file:", err)
     return
   }
   defer resp.Body.Close()
@@ -155,7 +159,7 @@ func saveStaticFile(r *http.Request, saveDir string, proxyURL *url.URL) {
   // 创建文件
   file, err := os.Create(filePath)
   if err != nil {
-    log.Println("Error creating file:", err)
+    hlog.Error("Error creating file:", err)
     return
   }
   defer file.Close()
@@ -163,7 +167,7 @@ func saveStaticFile(r *http.Request, saveDir string, proxyURL *url.URL) {
   // 写入文件
   _, err = io.Copy(file, resp.Body)
   if err != nil {
-    log.Println("Error saving file:", err)
+    hlog.Error("Error saving file:", err)
     return
   }
 }
@@ -171,20 +175,35 @@ func saveStaticFile(r *http.Request, saveDir string, proxyURL *url.URL) {
 var upgrader = websocket.Upgrader{
   ReadBufferSize:  1024,
   WriteBufferSize: 1024,
+  CheckOrigin: func(r *http.Request) bool {
+    // allow all origin
+    return true
+  },
 }
 
 func handleWebSocket(proxyURL *url.URL, w http.ResponseWriter, r *http.Request) {
   conn, err := upgrader.Upgrade(w, r, nil)
   if err != nil {
-    log.Println("Error upgrading to websocket:", err)
+    hlog.Error("Error upgrading to websocket:", err)
     return
   }
   defer conn.Close()
 
+  // 根据 proxyURL 的 Scheme 构造 WebSocket URL，并包含请求的路径和查询参数
+  wsScheme := "ws"
+  if proxyURL.Scheme == "https" {
+    wsScheme = "wss"
+  }
+  // 将原始请求的 Path 和 Query 附加到 proxyURL.Path 后面
+  wsURL := wsScheme + "://" + proxyURL.Host + r.URL.Path
+  if r.URL.RawQuery != "" {
+    wsURL += "?" + r.URL.RawQuery
+  }
+
   // 连接到远程 WebSocket 服务器
-  remoteConn, _, err := websocket.DefaultDialer.Dial(proxyURL.String(), nil)
+  remoteConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
   if err != nil {
-    log.Println("Error dialing remote websocket:", err)
+    hlog.Error("Error dialing remote websocket:", wsURL, "error:", err)
     return
   }
   defer remoteConn.Close()
@@ -194,12 +213,12 @@ func handleWebSocket(proxyURL *url.URL, w http.ResponseWriter, r *http.Request) 
     for {
       messageType, message, err := conn.ReadMessage()
       if err != nil {
-        log.Println("Error reading from websocket:", err)
+        hlog.Error("Error reading from websocket:", err)
         break
       }
       err = remoteConn.WriteMessage(messageType, message)
       if err != nil {
-        log.Println("Error writing to remote websocket:", err)
+        hlog.Error("Error writing to remote websocket:", err)
         break
       }
     }
@@ -209,27 +228,31 @@ func handleWebSocket(proxyURL *url.URL, w http.ResponseWriter, r *http.Request) 
   for {
     messageType, message, err := remoteConn.ReadMessage()
     if err != nil {
-      log.Println("Error reading from remote websocket:", err)
+      hlog.Error("Error reading from remote websocket:", err)
       break
     }
     err = conn.WriteMessage(messageType, message)
     if err != nil {
-      log.Println("Error writing to websocket:", err)
+      hlog.Error("Error writing to websocket:", err)
       break
     }
   }
 }
 
 func logRequest(r *http.Request) {
-  hlog.Info("Request URL:", r.URL)
-  hlog.Info("Request Headers:", r.Header)
+  if debug {
+    hlog.Info("Request URL:", r.URL)
+    hlog.Info("Request Headers:", r.Header)
+  }
   if r.Method == http.MethodPost || r.Method == http.MethodPut {
     bodyBytes, err := io.ReadAll(r.Body)
     if err != nil {
       hlog.Error("Error reading request body:", err)
     } else {
-      if len(bodyBytes) > 1024*100 {
-        hlog.Info("Request Body more that 100k")
+      if len(bodyBytes) > 1024*4000 {
+        if debug {
+          hlog.Info("Request Body more that 4000k")
+        }
       } else {
         hlog.Error("Request Body:", string(bodyBytes))
       }
@@ -243,15 +266,17 @@ func captureAndLogResponse(response http.ResponseWriter, request *http.Request, 
   logRequest(request)
   rw := &responseWriter{ResponseWriter: response}
   reverseProxy.ServeHTTP(rw, request)
-  hlog.Info("Response Headers:", rw.Header())
+  if debug {
+    hlog.Info("Response Headers:", rw.Header())
+  }
   decodedBody, err := decodeResponseBody(rw.Header(), rw.body)
   if err != nil {
     hlog.Error("Error decoding response body:", err)
     return
   }
   length := len(decodedBody)
-  if length > 1024*100 {
-    hlog.Info("Response Body more than 100k")
+  if length > 1024*400 {
+    hlog.Info("Response Body more than 400k")
   } else {
     hlog.Info("Response Body:", string(decodedBody))
   }
